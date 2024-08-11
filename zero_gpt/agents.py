@@ -1,7 +1,8 @@
-from typing import List
+from typing import List, Type, TypeVar, overload
 
 from openai import OpenAI
 from openai.types.chat.chat_completion import ChatCompletion
+from pydantic import BaseModel
 
 from zero_gpt.storage import load_history, save_messages
 
@@ -16,6 +17,9 @@ def get_client():
     Uses the system OPENAI_API_KEY environment variable to authenticate.
     """
     return OpenAI()
+
+
+StructuredResponseType = TypeVar("StructuredResponseType", bound=BaseModel)
 
 
 class OpenAIChatAgent:
@@ -33,6 +37,7 @@ class OpenAIChatAgent:
         self.history: ChatHistory = self._get_history()
         self.tools: List[OpenAIMessageTool] = self._get_tools()
         self._outgoing_messages: List[ChatMessage] = []
+        self._response_model: Type[BaseModel] | None = None
 
     # region internal methods
 
@@ -58,7 +63,10 @@ class OpenAIChatAgent:
         return settings.default_prompt
 
     def _make_prompt_message(self):
-        return ChatMessage(role=ChatRole.system, content=self.prompt)
+        prompt = self.prompt
+        if self._response_model:
+            prompt += f"Ensure your response is valid JSON following the following schema: {self._response_model.model_json_schema()}"
+        return ChatMessage(role=ChatRole.system, content=prompt)
 
     def _get_tools(self):
         return []
@@ -90,11 +98,15 @@ class OpenAIChatAgent:
         return tool_message
 
     def _openai_chat_completion(self, messages):
-        return self.client.chat.completions.create(
-            messages=messages,
-            model=self.model,
-            tools=self._format_tools_for_openai(),  # type: ignore
-        )
+        args = {
+            "messages": messages,
+            "model": self.model,
+            "tools": self._format_tools_for_openai(),
+        }
+        if self._response_model:
+            args["response_format"] = {"type": "json_object"}
+
+        return self.client.chat.completions.create(**args)
 
     def _construct_messages(self):
         """Creates the full message list to send to openAI"""
@@ -137,7 +149,19 @@ class OpenAIChatAgent:
         """
         self._outgoing_messages.append(message)
 
-    def send_messages(self, messages: List[ChatMessage] | None = None):
+    @overload
+    def send_messages(self) -> str | None: ...
+
+    @overload
+    def send_messages(
+        self, response_model: Type[StructuredResponseType]
+    ) -> StructuredResponseType | None: ...
+
+    def send_messages(
+        self,
+        response_model: Type[StructuredResponseType] | None = None,
+        messages: List[ChatMessage] | None = None,
+    ) -> str | StructuredResponseType | None:
         """Send Messages
 
         Sends all messages in the outgoing queue to the agent.
@@ -149,6 +173,8 @@ class OpenAIChatAgent:
         # send messages
         if messages:
             self._outgoing_messages.extend(messages)
+        if response_model:
+            self._response_model = response_model
         messages = self._construct_messages()
         completion: ChatCompletion = self._openai_chat_completion(messages)
         completion = self._handle_tool_calls(messages, completion)
@@ -161,16 +187,43 @@ class OpenAIChatAgent:
         agent_message = ChatMessage.from_openai(completion.choices[0].message)
         self.history.add_message(agent_message)
 
-        # save history, clear queue, return
+        # save history, clear queue, reset response model, return
         self._save_messages([agent_message])
         self._outgoing_messages.clear()
-        return completion.choices[0].message.content
+        self._response_model = None
 
-    def send_message(self, user_message: ChatMessage | str):
+        # parse output if required
+        response_content = completion.choices[0].message.content
+        if response_model and isinstance(response_content, str):
+            try:
+                return response_model.model_validate_json(response_content)
+            except Exception as e:
+                raise ValueError(
+                    "Response could not be parsed into the structured model.", e
+                )
+        return response_content
+
+    @overload
+    def send_message(self, user_message: ChatMessage | str) -> str | None: ...
+
+    @overload
+    def send_message(
+        self,
+        user_message: ChatMessage | str,
+        response_model: Type[StructuredResponseType],
+    ) -> StructuredResponseType | None: ...
+
+    def send_message(
+        self,
+        user_message: ChatMessage | str,
+        response_model: Type[StructuredResponseType] | None = None,
+    ) -> str | StructuredResponseType | None:
         """Send a single message to the chat agent and get the text of the response"""
 
         if isinstance(user_message, str):
             user_message = ChatMessage(role=ChatRole.user, content=user_message)
 
         self.add_message(user_message)
+        if response_model:
+            return self.send_messages(response_model=response_model)
         return self.send_messages()
