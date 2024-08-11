@@ -10,6 +10,8 @@ After installing the library you will need the OPENAI_API_KEY environment variab
 
 # Usage
 
+## Simple Messaging
+
 The simplest case involves sending a single text string to openAI
 
 ```python
@@ -231,7 +233,87 @@ print(response)
 
 Tool calls are not included in the agent's history, nor are they saved to the database.
 
+## Structured Output
+
+By default the `OpenAIChatAgent` returns strings from the `send_message()` function. You may however pass a Pydantic model using the `response_model` keyword argument, in which case the agent will return a valid model instance.
+
+```python
+from pydantic import BaseModel, Field
+
+from zero_gpt import OpenAIChatAgent
+
+
+class Musician(BaseModel):
+    name: str
+    instrument: str
+    best_known_for: str
+
+
+agent = OpenAIChatAgent()
+paul = agent.send_message(
+    "Give me a representation of Paul McCartney", response_model=Musician
+)
+print(paul)
+# name='Paul McCartney' instrument='Bass guitar, piano, vocals' best_known_for='Co-founding and being a member of The Beatles'
+```
+
+As with tool calls, you may nest pydantic models:
+```python
+from typing import List
+from pydantic import BaseModel
+from zero_gpt import OpenAIChatAgent
+
+class Musician(BaseModel):
+    name: str
+    instrument: str
+    best_known_for: str
+
+class Band(BaseModel):
+    band_name: str
+    members: List[Musician]
+    famous_hits: List[str]
+
+agent = OpenAIChatAgent()
+beatles = agent.send_message(
+    "Give me a representation the beatles", response_model=Band
+)
+print(beatles.model_dump_json())
+```
+```json
+{
+    "band_name": "The Beatles",
+    "members": [
+        {
+            "name": "John Lennon",
+            "instrument": "Vocals, Rhythm Guitar, Keyboard",
+            "best_known_for": "Co-founder of The Beatles, songwriter",
+        },
+        {
+            "name": "Paul McCartney",
+            "instrument": "Vocals, Bass Guitar, Keyboard",
+            "best_known_for": "Co-founder of The Beatles, songwriter",
+        },
+        {
+            "name": "George Harrison",
+            "instrument": "Lead Guitar, Vocals",
+            "best_known_for": "Songwriter, introduced Indian music influence",
+        },
+        {
+            "name": "Ringo Starr",
+            "instrument": "Drums, Vocals",
+            "best_known_for": "Drummer of The Beatles, unique drumming style",
+        },
+    ],
+    "famous_hits": [
+        "Hey Jude",
+        "Let It Be",
+        "Yesterday",
+        "Come Together",
+        "A Hard Day's Night",
+    ],
+}
+```
+
 # TODO:
 - [ ] The agent history and saving methods are too loosely coupled
-- [ ] Include structured output for returning something other than strings from the agent.
 - [ ] Improve Logging
