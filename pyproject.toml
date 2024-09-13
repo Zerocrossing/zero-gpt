@@ -1,15 +1,15 @@
 [tool.poetry]
 name = "zero-gpt"
-version = "0.1.1"
+version = "0.1.2"
 description = ""
 authors = ["Rob Bishop <infamousrob@gmail.com>"]
 readme = "README.md"
 
 [tool.poetry.dependencies]
-python = "^3.11"
-openai = "^1.40.3"
-pydantic = "^2.8.2"
-instructor = "^1.3.7"
+python = "^3.9"
+openai = "^1"
+pydantic = "^2"
+instructor = "^1"
 
 
 [tool.poetry.group.dev.dependencies]
