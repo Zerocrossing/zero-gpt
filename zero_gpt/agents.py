@@ -94,7 +94,6 @@ class OpenAIChatAgent:
         # if tool message is a string, convert it to a ChatMessage
         if isinstance(tool_message, str):
             tool_message = ChatMessage(role=ChatRole.tool, content=tool_message)
-        print(f"Tool {function_name}: {tool_message.content}")
         return tool_message
 
     def _openai_chat_completion(self, messages):
@@ -124,9 +123,6 @@ class OpenAIChatAgent:
             # add the openai tool calling message to the history (temporarily)
             messages.append(completion.choices[0].message)
             for tool_call in tool_calls:
-                print(
-                    f"Openai Has called tool: {tool_call.function.name} with args {tool_call.function.arguments}"
-                )
                 tool_message = self._get_message_from_tool_call(tool_call)
                 tool_response_message = tool_message.as_openai
                 # append the tool_call_id
