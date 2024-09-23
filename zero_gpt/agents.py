@@ -3,6 +3,7 @@ from typing import List, Type, TypeVar, overload
 from openai import OpenAI
 from openai.types.chat.chat_completion import ChatCompletion
 from pydantic import BaseModel
+from instructor import OpenAISchema
 
 from zero_gpt.storage import load_history, save_messages
 
@@ -64,8 +65,6 @@ class OpenAIChatAgent:
 
     def _make_prompt_message(self):
         prompt = self.prompt
-        if self._response_model:
-            prompt += f"Ensure your response is valid JSON following the following schema: {self._response_model.model_json_schema()}"
         return ChatMessage(role=ChatRole.system, content=prompt)
 
     def _get_tools(self):
@@ -97,15 +96,35 @@ class OpenAIChatAgent:
         return tool_message
 
     def _openai_chat_completion(self, messages):
-        args = {
-            "messages": messages,
-            "model": self.model,
-            "tools": self._format_tools_for_openai(),
-        }
-        if self._response_model:
-            args["response_format"] = {"type": "json_object"}
 
-        return self.client.chat.completions.create(**args)
+        args = {
+            "model" : self.model,
+            "messages" : messages
+        }
+        if self.tools:
+            args["tools"] = self._format_tools_for_openai()
+
+        if self._response_model:
+            # the new parse feature is sketchy, but this works at the moment
+            if args.get("tools"):
+                for tool in args.get("tools"):
+                    tool["function"]["strict"] = True
+                    tool["function"]["parameters"]["additionalProperties"] = False
+
+            args["response_format"] = self._response_model
+            completion = self.client.beta.chat.completions.parse(
+                **args
+            )
+            return completion
+
+        else:
+            args = {
+                "messages": messages,
+                "model": self.model,
+                "tools": self._format_tools_for_openai(),
+            }
+            return self.client.chat.completions.create(**args)
+
 
     def _construct_messages(self):
         """Creates the full message list to send to openAI"""
