@@ -1,11 +1,11 @@
 from datetime import datetime
-from enum import StrEnum
+from enum import Enum
 from typing import List, Optional
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
-class ChatRole(StrEnum):
+class ChatRole(str, Enum):
     """Chat Role
 
     The different types of "Roles" an openAI message can have.
