@@ -38,6 +38,10 @@ class ChatMessage(BaseModel):
         default=None,
         description="An optional name identifier for the message. May not contain spaces.",
     )
+    image_data_or_url: Optional[str] = Field(
+        default=None,
+        description="An optional image to include with the message. Can be a URL or base64 encoded image data.",
+    )
     include_in_history: bool = Field(
         default=True,
         description="Determines whether this message should be included in the conversation history.",
@@ -66,11 +70,23 @@ class ChatMessage(BaseModel):
         """Return the message formatted for openai's API"""
         msg = {
             "role": self.role,
-            "content": self.content,
+            "content": [
+                {"type": "text", "text": self.content}
+            ],
         }
         if self.name:
             msg["name"] = self.name
+        if self.image_data_or_url:
+            msg["content"].append(
+                {
+                    "type": "image_url",
+                    "image_url": {
+                        "url": f"data:image/jpeg;base64,{self.image_data_or_url}"
+                    },
+                }
+            )
         return msg
+
 
     @classmethod
     def from_openai(cls, msg):
