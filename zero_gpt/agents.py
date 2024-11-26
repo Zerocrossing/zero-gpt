@@ -2,12 +2,13 @@ from typing import List, Type, TypeVar, overload
 
 from openai import OpenAI
 from openai.types.chat.chat_completion import ChatCompletion
+from openai.types.chat.chat_completion_message import ChatCompletionMessage
 from pydantic import BaseModel
 from instructor import OpenAISchema
 
 from zero_gpt.storage import load_history, save_messages
 
-from .models import ChatHistory, ChatMessage, ChatRole
+from .models import ChatHistory, ChatMessage, ChatRole, Voices
 from .settings import settings
 from .tools import OpenAIMessageTool
 
@@ -39,6 +40,7 @@ class OpenAIChatAgent:
         self.tools: List[OpenAIMessageTool] = self._get_tools()
         self._outgoing_messages: List[ChatMessage] = []
         self._response_model: Type[BaseModel] | None = None
+        self._voice: Voices | None = None
 
     # region internal methods
 
@@ -96,11 +98,7 @@ class OpenAIChatAgent:
         return tool_message
 
     def _openai_chat_completion(self, messages):
-
-        args = {
-            "model" : self.model,
-            "messages" : messages
-        }
+        args = {"model": self.model, "messages": messages}
         if self.tools:
             args["tools"] = self._format_tools_for_openai()
 
@@ -112,10 +110,18 @@ class OpenAIChatAgent:
                     tool["function"]["parameters"]["additionalProperties"] = False
 
             args["response_format"] = self._response_model
-            completion = self.client.beta.chat.completions.parse(
-                **args
-            )
+            completion = self.client.beta.chat.completions.parse(**args)
             return completion
+
+        elif self._voice is not None:
+            args = {
+                "model": "gpt-4o-audio-preview",
+                "tools": self._format_tools_for_openai(),
+                "modalities": ["text", "audio"],
+                "audio": {"voice": self._voice.value, "format": "mp3"},
+                "messages": messages,
+            }
+            return self.client.chat.completions.create(**args)
 
         else:
             args = {
@@ -124,7 +130,6 @@ class OpenAIChatAgent:
                 "tools": self._format_tools_for_openai(),
             }
             return self.client.chat.completions.create(**args)
-
 
     def _construct_messages(self):
         """Creates the full message list to send to openAI"""
@@ -242,3 +247,54 @@ class OpenAIChatAgent:
         if response_model:
             return self.send_messages(response_model=response_model)
         return self.send_messages()
+
+    def send_messages_audio_response(
+        self, messages: List[ChatMessage] | None = None, voice: Voices = Voices.ASH
+    ) -> ChatCompletionMessage:
+        """Send all messages to the chat agent and get the audio response
+
+        The response object includes the audio as well as the text.
+        """
+        if messages:
+            self._outgoing_messages.extend(messages)
+        messages = self._construct_messages()
+        completion: ChatCompletion = self._openai_chat_completion(messages)
+        completion: ChatCompletion = self._handle_tool_calls(messages, completion)
+        if not isinstance(completion, ChatCompletion):
+            raise ValueError("Expected a ChatCompletion from OpenAI")
+
+        # handle history
+        for message in self._outgoing_messages:
+            if not message.include_in_history:
+                continue
+            self.history.add_message(message)
+        completion_message = completion.choices[0].message
+        if not hasattr(completion_message, "audio") or not completion_message.audio:
+            raise ValueError("Expected an audio response from OpenAI")
+        agent_message = ChatMessage(
+            role=ChatRole.assistant, 
+            content=completion_message.audio.transcript
+        )
+        self.history.add_message(agent_message)
+
+        # save history, clear queue, reset voice model, return
+        self._save_messages([agent_message])
+        self._outgoing_messages.clear()
+        self._voice = None
+
+        # parse output if required
+        return completion_message
+
+    def send_message_audio_response(
+        self, user_message: ChatMessage | str, voice: Voices | str = Voices.ASH
+    ) -> ChatCompletionMessage:
+        """Send a single message to the chat agent and get the audio response"""
+        if isinstance(user_message, str):
+            user_message = ChatMessage(role=ChatRole.user, content=user_message)
+
+        if isinstance(voice, str):
+            voice = Voices(voice)
+        self._voice = voice
+
+        self.add_message(user_message)
+        return self.send_messages_audio_response(voice=voice)

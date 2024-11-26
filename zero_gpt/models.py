@@ -113,3 +113,16 @@ class ChatHistory(BaseModel):
     @property
     def as_openai(self):
         return [msg.as_openai for msg in self.messages]
+
+class Voices(Enum):
+    ALLOY = "alloy"
+    ECHO = "echo"
+    FABLE = "fable"
+    ONYX = "onyx"
+    NOVA = "nova"
+    SHIMMER = "shimmer"
+    ASH = "ash"
+    BALLAD = "ballad"
+    CORAL = "coral"
+    SAGE = "sage"
+    VERSE = "verse"
