@@ -42,6 +42,10 @@ class ChatMessage(BaseModel):
         default=None,
         description="An optional image to include with the message. Can be a URL or base64 encoded image data.",
     )
+    audio_data: Optional[str] = Field(
+        default=None,
+        description="An optional audio clip to include with the message. Must be base64 encoded audio data. Must be a base64 encoded wav file.",
+    )
     include_in_history: bool = Field(
         default=True,
         description="Determines whether this message should be included in the conversation history.",
@@ -83,6 +87,16 @@ class ChatMessage(BaseModel):
                     "image_url": {
                         "url": f"data:image/jpeg;base64,{self.image_data_or_url}"
                     },
+                }
+            )
+        if self.audio_data:
+            msg["content"].append(
+                {
+                    "type": "input_audio",
+                    "input_audio": {
+                        "data" : self.audio_data,
+                        "format": "wav",
+                    }
                 }
             )
         return msg
