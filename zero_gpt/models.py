@@ -90,6 +90,8 @@ class ChatMessage(BaseModel):
                 }
             )
         if self.audio_data:
+            if self.content =="": # bit of a hack to support audio only
+                msg["content"] = []
             msg["content"].append(
                 {
                     "type": "input_audio",
